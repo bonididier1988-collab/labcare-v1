@@ -8,3 +8,22 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Secret de signature JWT : à définir dans le tableau de bord Render
+      # (jamais dans le code). Le serveur refuse de démarrer en production
+      # sans JWT_SECRET, et exige au moins 32 caractères.
+      - key: JWT_SECRET
+        sync: false
+      # Dossier de la base de données, sur le disque persistant ci-dessous.
+      - key: DATA_DIR
+        value: /var/data/labcare
+    # Disque persistant : sans lui, la base (data/labcare.db) est perdue à
+    # chaque redéploiement, car le disque du plan gratuit est éphémère.
+    # ATTENTION : les disques persistants ne sont pas disponibles sur le
+    # plan gratuit — il faut passer à une instance payante (Starter) pour
+    # que ce disque soit pris en compte. Sur le plan gratuit, la base est
+    # réinitialisée à chaque redéploiement : utilisation de démonstration
+    # uniquement, jamais de vraies données.
+    disk:
+      name: labcare-data
+      mountPath: /var/data
+      sizeGB: 1

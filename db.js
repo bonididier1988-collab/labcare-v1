@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
+const { isProd } = require('./lib/config');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DB_PATH = path.join(DATA_DIR, 'labcare.db');
@@ -17,7 +18,12 @@ function save() {
   if (!db) return;
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const data = db.export();
-  fs.writeFileSync(DB_PATH, Buffer.from(data));
+  // Écriture atomique : on écrit d'abord dans un fichier temporaire, puis on
+  // renomme vers le fichier final. Un arrêt en plein milieu d'une écriture
+  // ne corrompt jamais la base (le fichier final est remplacé d'un coup).
+  const tmpPath = DB_PATH + '.tmp';
+  fs.writeFileSync(tmpPath, Buffer.from(data));
+  fs.renameSync(tmpPath, DB_PATH);
 }
 
 function all(sql, params = []) {
@@ -53,6 +59,10 @@ function parseRoles(user) {
 }
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -84,7 +94,8 @@ CREATE TABLE IF NOT EXISTS two_factor_codes (
   user_id INTEGER NOT NULL REFERENCES users(id),
   code_hash TEXT NOT NULL,
   expires_at INTEGER NOT NULL,
-  used INTEGER NOT NULL DEFAULT 0
+  used INTEGER NOT NULL DEFAULT 0,
+  attempts INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS dossiers (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -149,7 +160,6 @@ const SEED_USERS = [
   { name: 'Marie Koné', email: 'labo@labcare-test.ci', phone: '+225 01 00 00 04', roles: ['laboratoire'], password: 'Labcare2026Labo12' },
   { name: 'Dr Aya Kouassi', email: 'medecin@labcare-test.ci', phone: '+225 01 00 00 05', roles: ['medecin'], password: 'Labcare2026Medecin' },
   { name: 'Hervé Admin', email: 'admin@labcare-test.ci', phone: '+225 01 00 00 06', roles: ['admin'], password: 'Labcare2026Admin1' },
-  { name: 'Fatou Traoré', email: 'admin2@labcare-test.ci', phone: '+225 01 00 00 07', roles: ['admin', 'secretariat'], password: 'Labcare2026Admin2' },
   { name: "Paul N'Guessan", email: 'preleveur2@labcare-test.ci', phone: '+225 01 00 00 08', roles: ['preleveur'], password: 'Labcare2026Prelev2' },
 ];
 
@@ -251,7 +261,18 @@ async function init() {
     db = new SQL.Database();
   }
   db.exec(SCHEMA);
-  seed();
+  // Migration des bases créées avant l'audit de sécurité : ajoute la
+  // colonne `attempts` à two_factor_codes si elle manque (CREATE TABLE IF
+  // NOT EXISTS ne modifie pas une table déjà créée).
+  const tfCols = all('PRAGMA table_info(two_factor_codes)').map((c) => c.name);
+  if (!tfCols.includes('attempts')) {
+    db.exec('ALTER TABLE two_factor_codes ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0');
+  }
+  // Comptes de test : DÉVELOPPEMENT UNIQUEMENT. En production, la base
+  // démarre vide — aucun compte test n'est jamais créé. Le premier
+  // Administrateur est créé par la route /api/setup (voir server.js),
+  // utilisable uniquement tant qu'aucun compte n'existe.
+  if (!isProd) seed();
   save();
   return { all, get, run, exec, save, parseRoles };
 }

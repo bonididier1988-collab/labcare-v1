@@ -1,3 +1,12 @@
+# Dépendances installées (elles se réinstallent avec « npm install »)
 node_modules/
-data/*.db
+
+# Fichier des secrets : ne jamais l'envoyer sur GitHub
 .env
+
+# Base de données et tout le dossier data/ (les dossiers des patients)
+data/
+
+# Journaux et sauvegardes locales
+logs/
+backups/
